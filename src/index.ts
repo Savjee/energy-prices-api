@@ -43,6 +43,12 @@ export default {
 			method: "GET",
 			headers: {
 				"Accept": "application/json"
+			},
+			cf: {
+				// Cache result for 1 hour (in seconds) if it was successful
+				cacheTtlByStatus: {
+					"200-299": 1*60*60,
+				}
 			}
 		});
 
