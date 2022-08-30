@@ -71,9 +71,14 @@ export default {
 		console.log("avg", avg);
 
 		// Device by 1000 to convert MWh to kWh
-		return new Response(JSON.stringify({
+		const response = new Response(JSON.stringify({
 			avg: avg / 1000,
 			median: med / 1000,
 		}));
+
+		// Allow the browser to cache the result for 1 hour as well
+		response.headers.set("Cache-Control", "max-age=3600");
+
+		return response;
 	},
 };
