@@ -28,17 +28,10 @@ const median = (arr: number[]) => {
 };
 
 export default {
-	async fetch(
-		request: Request,
-		env: Env,
-		ctx: ExecutionContext
-	): Promise<Response> {
-
-
+	async fetch(_request: Request, _env: Env, _ctx: ExecutionContext): Promise<Response> {
 		const today = new Date().toISOString().substring(0, 10);
 		const url = BASE_URL + today;
 
-		console.log("Making request to", url);
 		const req = await fetch(url, {
 			method: "GET",
 			headers: {
@@ -54,7 +47,11 @@ export default {
 
 		const priceData = await req.json();
 		if(!Array.isArray(priceData)){
-			return new Response("error");
+			return new Response(JSON.stringify({
+				error: "No valid response from Elia",
+			}), {
+				status: 503,
+			});
 		}
 
 		console.log("Got data: " + JSON.stringify(priceData));
