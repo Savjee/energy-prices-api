@@ -7,75 +7,64 @@
  *
  * Learn more at https://developers.cloudflare.com/workers/
  */
+import { PriceFetcher } from "./PriceFetcher";
+import BelgiumElectricity from "./sources/be/electricity";
+import BelgiumGas from "./sources/be/gas";
 
 export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
 }
 
-const BASE_URL = "https://griddata.elia.be/eliabecontrols.prod/interface/Interconnections/daily/auctionresults/";
+const routing: RouterMap[] = [
+	{ country: "be", electricity: BelgiumElectricity, gas: BelgiumGas, }
+];
 
-const median = (arr: number[]) => {
-  const mid = Math.floor(arr.length / 2),
-    nums = [...arr].sort((a, b) => a - b);
-  return arr.length % 2 !== 0 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
-};
+interface RouterMap {
+	country: "be"
+	electricity: new (r: Request) => PriceFetcher,
+	gas: new (r: Request) => PriceFetcher,
+}
 
 export default {
-	async fetch(_request: Request, _env: Env, _ctx: ExecutionContext): Promise<Response> {
-		const today = new Date().toISOString().substring(0, 10);
-		const url = BASE_URL + today;
+	async fetch(request: Request, _env: Env, _ctx: ExecutionContext): Promise<Response> {
 
-		const req = await fetch(url, {
-			method: "GET",
-			headers: {
-				"Accept": "application/json"
-			},
-			cf: {
-				// Cache result for 1 hour (in seconds) if it was successful
-				cacheTtlByStatus: {
-					"200-299": 1*60*60,
-				}
-			}
-		});
+		console.log(request.url);
+		const url = new URL(request.url);
+		const path = url.pathname.substring(1);
+		const { 0: country, 1: energy } = path.split("/");
 
-		const priceData = await req.json();
-		if(!Array.isArray(priceData)){
-			return new Response(JSON.stringify({
-				error: "No valid response from Elia",
-			}), {
-				status: 503,
+		if(!energy || energy !== "electricity" && energy !== "gas"){
+			return new Response(null, {
+				status: 404,
 			});
 		}
 
-		console.log("Got data: " + JSON.stringify(priceData));
+		// Try to find what the user wants
+		const countryObj = routing.find(el => el.country === country);
+		if(!countryObj){
+			return new Response(null, {
+				status: 404,
+			});
+		}
 
-		const count = priceData.length;
-		const values = priceData.map((el) => el.price);
+		const priceFetcher = new countryObj[energy](request);
+		const response = await priceFetcher.fetchPrice();
 
-		const sum = values.reduce((prev, curr) => prev + curr, 0);		
-
-		const avg = sum / count;
-		const med = median(values);
-
-		console.log("median", med);
-		console.log("avg", avg);
-
-		// Device by 1000 to convert MWh to kWh
-		const response = new Response(JSON.stringify({
-			avg: avg / 1000,
-			median: med / 1000,
-		}));
-
-		// Allow the browser to cache the result for 1 hour as well
-		response.headers.set("Cache-Control", "max-age=3600");
+		// Allow the browser to cache the result as well
+		response.headers.set("Cache-Control", 
+													"max-age=" + priceFetcher.cacheTimes.browser);
 
 		return response;
+	},
+
+	async scheduled(event: any, env: any, ctx: any) {
+	    ctx.waitUntil(async () => {
+	    	for(const country of routing){
+	    		const gas = new country.gas(event);
+	    		const elec = new country.electricity(event);
+
+	    		await gas.fetchPrice();
+	    		await elec.fetchPrice();
+	    	}
+	    });
 	},
 };
