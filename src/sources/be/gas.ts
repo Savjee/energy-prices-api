@@ -1,7 +1,6 @@
 import { PriceFetcher } from "../../PriceFetcher";
-import { median } from "../../utils/median";
 
-const BASE_URL = "https://www.powernext.com/data-feed/1467707/819/17";
+const BASE_URL = "https://www.theice.com/marketdata/DelayedMarkets.shtml?getIntradayChartDataAsJson=&marketId=5493476";
 
 export default class BelgiumGas extends PriceFetcher{
 	async fetchPrice() {
@@ -17,19 +16,17 @@ export default class BelgiumGas extends PriceFetcher{
 		});
 
 		const priceData: any = await req.json();
-		const pricePerDay = priceData?.values[0]?.data;
+		const lastPrice = priceData?.lastPrice;
 
-		if(!pricePerDay || !Array.isArray(pricePerDay)){
+		if(!lastPrice){
 			return new Response(JSON.stringify({
-				error: "No valid response from PowerNext",
+				error: "No valid response from The Ice",
 			}), {
 				status: 503,
 			});
 		}
 
-		const lastDay = pricePerDay[pricePerDay.length -1];
-		const price = lastDay.y / 94.79;
-
+		const price = lastPrice / 94.79;
 		return new Response(JSON.stringify({
 			price: price,
 			unit: "m3",
