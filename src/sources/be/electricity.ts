@@ -1,51 +1,43 @@
 import { PriceFetcher } from "../../PriceFetcher";
 import { median } from "../../utils/median";
 
-const BASE_URL = "https://griddata.elia.be/eliabecontrols.prod"
-					+ "/interface/Interconnections/daily/auctionresults/";
+const BASE_URL = "https://business.engie.be/api/engie/be/gems/b2b-pricing/v1/public/prices/endex?market=BPB_POWER,TFM_GAS";
 
 export default class BelgiumElectricity extends PriceFetcher{
 	async fetchPrice() {
-		const today = new Date().toISOString().substring(0, 10);
-		const url = BASE_URL + today;
-
-		const req = await fetch(url, {
+		const req = await fetch(BASE_URL, {
 			method: "GET",
 			headers: {
 				"Accept": "application/json"
 			},
 			cf: {
-				cacheKey: url,
+				cacheKey: BASE_URL,
 				cacheTtl: this.cacheTimes.apiRequest,
 			}
 		});
 
-		const priceData = await req.json();
-		if(!Array.isArray(priceData)){
+		const priceData: any = await req.json();
+		const electricityPrice = priceData.find((e: any) => e.name === 'TFM');
+
+		if(!electricityPrice){
 			return new Response(JSON.stringify({
-				error: "No valid response from Elia",
+				error: "No valid response from Engie",
 			}), {
 				status: 503,
 			});
 		}
 
-		console.log("Got data: " + JSON.stringify(priceData));
+		const lastPrice = electricityPrice
+							.prices
+							.periodicPrices
+							.find((e: any) => e.granularity === 'MONTHLY')
+							.prices[0]
+							.value / 1000;
 
-		const count = priceData.length;
-		const values = priceData.map((el) => el.price);
-
-		const sum = values.reduce((prev, curr) => prev + curr, 0);		
-
-		const avg = sum / count;
-		const med = median(values);
-
-		console.log("median", med);
-		console.log("avg", avg);
-
-		// Device by 1000 to convert MWh to kWh
 		return new Response(JSON.stringify({
-			avg: avg / 1000,
-			median: med / 1000,
+			avg: lastPrice,
+			median: lastPrice,
+			unit: "€/kWh"
 		}));
 	}
 }
