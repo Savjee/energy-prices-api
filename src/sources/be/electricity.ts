@@ -1,14 +1,32 @@
 import { PriceFetcher } from "../../PriceFetcher";
 import { median } from "../../utils/median";
 
-const BASE_URL = "https://business.engie.be/api/engie/be/gems/b2b-pricing/v1/public/prices/endex?market=BPB_POWER,TFM_GAS";
-
 export default class BelgiumElectricity extends PriceFetcher{
 	async fetchPrice() {
+		const now = new Date();
+		const BASE_URL = "https://graphql.frankenergie.nl";
+		const QUERY = `
+			query MarketPrices {
+				marketPrices(date:"${now.toISOString().substring(0,10)}") {
+					electricityPrices {
+						from
+						till
+						marketPrice
+						marketPriceTax
+						sourcingMarkupPrice
+						energyTaxPrice
+						perUnit
+					}
+				}
+			}
+		`;
+
 		const req = await fetch(BASE_URL, {
-			method: "GET",
+			method: "POST",
+			body: JSON.stringify({ query: QUERY }),
 			headers: {
-				"Accept": "application/json"
+				"content-type":"application/json",
+				"x-country": "BE",
 			},
 			cf: {
 				cacheKey: BASE_URL,
@@ -16,27 +34,29 @@ export default class BelgiumElectricity extends PriceFetcher{
 			}
 		});
 
+		// Get the price data from the response
 		const priceData: any = await req.json();
-		const electricityPrice = priceData.find((e: any) => e.name === 'TFM');
+		const hourPrices = priceData.data.marketPrices.electricityPrices;
 
-		if(!electricityPrice){
+		// Find the price for the current time
+		const currentPrice = hourPrices.find((el: any) => {
+			const from = new Date(el.from);
+			const to = new Date(el.till);
+			return now >= from && now < to;
+		});
+
+		if(!currentPrice){
 			return new Response(JSON.stringify({
-				error: "No valid response from Engie",
+				error: "No valid response from FrankEnergie",
 			}), {
 				status: 503,
 			});
 		}
 
-		const lastPrice = electricityPrice
-							.prices
-							.periodicPrices
-							.find((e: any) => e.granularity === 'MONTHLY')
-							.prices[0]
-							.value / 1000;
-
+		const totalPrice = currentPrice.marketPrice + currentPrice.marketPriceTax;
 		return new Response(JSON.stringify({
-			avg: lastPrice,
-			median: lastPrice,
+			avg: totalPrice,
+			median: totalPrice,
 			unit: "€/kWh"
 		}));
 	}
